@@ -121,16 +121,20 @@ def darts_metrics_adapter(metric_func, actual_series: Union[TimeSeries, Sequence
         inter_reduction: Callable[[np.ndarray], Union[float, np.ndarray]] = lambda x: x,
         n_jobs: int = 1,
         verbose: bool = False):
-    
+
     actual_series, pred_series = cast_to_series(actual_series), cast_to_series(pred_series)
+    
     if insample is not None:
         insample = cast_to_series(insample)
+    
     assert type(actual_series) is type(pred_series), f"actual_series({type(actual_series)}) and pred_series({type(pred_series)}) should be of same type."
+    
     if insample is not None:
         assert type(actual_series) is type(insample), "actual_series and insample should be of same type."
+    
     is_nd_array = isinstance(actual_series, np.ndarray)
     is_pd_series = isinstance(actual_series, pd.Series)
-    
+
     if is_pd_series:
         is_datetime_index = is_datetime_dtypes(actual_series.index) and is_datetime_dtypes(pred_series.index)
         if insample is not None:
@@ -140,7 +144,7 @@ def darts_metrics_adapter(metric_func, actual_series: Union[TimeSeries, Sequence
     if metric_func.__name__ == "mase":
         if not is_datetime_index:
             raise ValueError("MASE needs pandas Series with datetime index as inputs")
-    
+
     if is_nd_array or (is_pd_series and not is_datetime_index):
         actual_series, pred_series = TimeSeries.from_values(actual_series.values if is_pd_series else actual_series), TimeSeries.from_values(pred_series.values if is_pd_series else pred_series)
         if insample is not None:
@@ -153,9 +157,13 @@ def darts_metrics_adapter(metric_func, actual_series: Union[TimeSeries, Sequence
     else:
         raise ValueError()
     if metric_func.__name__ == "mase":
-        return metric_func(actual_series=actual_series, pred_series=pred_series, insample=insample, m=m, intersect=intersect, reduction=reduction, inter_reduction=inter_reduction, n_jobs=n_jobs, verbose=verbose)
+        return metric_func(actual_series=actual_series, pred_series=pred_series, insample=insample, m=m, intersect=intersect, n_jobs=n_jobs, verbose=verbose)
+    elif metric_func.__name__ == "mae":
+        return metric_func(actual_series=actual_series, pred_series=pred_series, intersect=intersect, n_jobs=n_jobs, verbose=verbose)
+    elif metric_func.__name__ == "mse":
+        return metric_func(actual_series=actual_series, pred_series=pred_series, intersect=intersect, n_jobs=n_jobs, verbose=verbose)
     else:
-        return metric_func(actual_series=actual_series, pred_series=pred_series, intersect=intersect, reduction=reduction, inter_reduction=inter_reduction, n_jobs=n_jobs, verbose=verbose)
+        return metric_func(actual_series=actual_series, pred_series=pred_series, intersect=intersect, n_jobs=n_jobs, verbose=verbose)
 
 def mae(actuals, predictions):
     return np.nanmean(np.abs(actuals-predictions))

@@ -181,6 +181,7 @@ class SingleStepRNNModel(BaseModel):
         super().__init__(config)
 
     def _build_network(self):
+
         if self.hparams.rnn_type == "RNN":
             self.rnn = nn.RNN(
                 input_size=self.hparams.input_size,
@@ -189,6 +190,7 @@ class SingleStepRNNModel(BaseModel):
                 batch_first=True,
                 bidirectional=self.hparams.bidirectional,
             )
+
         elif self.hparams.rnn_type == "LSTM":
             self.rnn = nn.LSTM(
                 input_size=self.hparams.input_size,
@@ -197,6 +199,7 @@ class SingleStepRNNModel(BaseModel):
                 batch_first=True,
                 bidirectional=self.hparams.bidirectional,
             )
+
         elif self.hparams.rnn_type == "GRU":
             self.rnn = nn.GRU(
                 input_size=self.hparams.input_size,
@@ -207,17 +210,22 @@ class SingleStepRNNModel(BaseModel):
             )
         else:
             raise ValueError("Invalid RNN type")
+
         multiplier = 2 if self.hparams.bidirectional else 1
-        self.fc = nn.Linear(multiplier*self.hparams.hidden_size, 1)
+        self.fc = nn.Linear(multiplier * self.hparams.hidden_size, 1)
 
     def forward(self, batch: Tuple[torch.Tensor, torch.Tensor]):
         x, y = batch
         # x --> (batch_size, seq_len, input_size), y--> (batch_size, seq_len, 1)
+
         assert y.size(1) == 1, "y should have only a single timestep"
         # shifting the input by one and concatenating with the output to get the target
+
         y = torch.cat([x[:, 1:, :], y], dim=1)  # --> (batch_size, seq_len, 1)
+
         x, _ = self.rnn(x)  # --> (batch_size, seq_len, hidden_size)
         x = self.fc(x)  # --> (batch_size, seq_len, 1)
+
         return x, y
 
     def predict(
@@ -225,6 +233,7 @@ class SingleStepRNNModel(BaseModel):
     ):
         with torch.no_grad():
             y_hat, _ = self.forward(batch)
+
         if ret_model_output:
             return y_hat
         else:
@@ -316,6 +325,7 @@ class Seq2SeqModel(BaseModel):
             )
         else:
             raise ValueError("Invalid RNN type")
+
         if self.hparams.decoder_type == "RNN":
             self.decoder = nn.RNN(
                 **self.hparams.decoder_params,
@@ -336,7 +346,7 @@ class Seq2SeqModel(BaseModel):
                 self.decoder = nn.Linear(
                     self.hparams.encoder_params.hidden_size
                     * enc_bi_directional_multiplier
-                    * self.hparams.decoder_params.window_size,
+                    * self.hparams.decoder_params.window_size,      # Add all hidden states
                     self.hparams.decoder_params.horizon,
                 )
             else:
@@ -356,6 +366,7 @@ class Seq2SeqModel(BaseModel):
         o, h = self.encoder(
             x
         )  # --> (batch_size, seq_len, hidden_size) , (num_layers, batch_size, hidden_size) (hidden size*2 and num_layers*2 if bidirectional)
+
         if self.hparams.decoder_type == "FC":
             if self.hparams.decoder_use_all_hidden:
                 y_hat = self.decoder(o.reshape(o.size(0), -1)).unsqueeze(-1)
@@ -376,6 +387,7 @@ class Seq2SeqModel(BaseModel):
                     dec_input = y[:, i, :].unsqueeze(1)
                 else:
                     dec_input = out
+
         return y_hat, y
 
     def predict(

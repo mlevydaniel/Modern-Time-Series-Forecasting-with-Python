@@ -34,25 +34,33 @@ class MissingValueConfig:
 
     def impute_missing_values(self, df: pd.DataFrame):
         df = df.copy()
+
         bfill_columns = intersect_list(df.columns, self.bfill_columns)
         df[bfill_columns] = df[bfill_columns].fillna(method="bfill")
+
         ffill_columns = intersect_list(df.columns, self.ffill_columns)
         df[ffill_columns] = df[ffill_columns].fillna(method="ffill")
+
         zero_fill_columns = intersect_list(df.columns, self.zero_fill_columns)
         df[zero_fill_columns] = df[zero_fill_columns].fillna(0)
+
         check = df.isnull().any()
         missing_cols = check[check].index.tolist()
+
         missing_numeric_cols = intersect_list(
             missing_cols, df.select_dtypes([np.number]).columns.tolist()
         )
+
         missing_object_cols = intersect_list(
             missing_cols, df.select_dtypes(["object"]).columns.tolist()
         )
+
         # Filling with mean and NA as default fillna strategy
         df[missing_numeric_cols] = df[missing_numeric_cols].fillna(
             df[missing_numeric_cols].mean()
         )
         df[missing_object_cols] = df[missing_object_cols].fillna("NA")
+
         return df
 
 
@@ -79,10 +87,12 @@ class FeatureConfig:
         default_factory=list,
         metadata={"help": "Column names of the numeric fields. Defaults to []"},
     )
+
     categorical_features: List[str] = field(
         default_factory=list,
         metadata={"help": "Column names of the categorical fields. Defaults to []"},
     )
+
     boolean_features: List[str] = field(
         default_factory=list,
         metadata={"help": "Column names of the boolean fields. Defaults to []"},
@@ -100,25 +110,33 @@ class FeatureConfig:
             "help": "Column names of the exogenous features. Must be a subset of categorical and continuous features"
         },
     )
+
     feature_list: List[str] = field(init=False)
 
     def __post_init__(self):
+
         assert (
             len(self.categorical_features) + len(self.continuous_features) > 0
         ), "There should be at-least one feature defined in categorical or continuous columns"
+
         self.feature_list = (
             self.categorical_features + self.continuous_features + self.boolean_features
         )
+
         assert (
             self.target not in self.feature_list
         ), f"`target`({self.target}) should not be present in either categorical, continuous or boolean feature list"
+
         assert (
             self.date not in self.feature_list
         ), f"`date`({self.target}) should not be present in either categorical, continuous or boolean feature list"
+
         extra_exog = set(self.exogenous_features) - set(self.feature_list)
+
         assert (
             len(extra_exog) == 0
         ), f"These exogenous features are not present in feature list: {extra_exog}"
+
         intersection = (
             set(self.continuous_features)
             .intersection(self.categorical_features + self.boolean_features)
@@ -135,7 +153,7 @@ class FeatureConfig:
         )
         assert (
             len(intersection) == 0
-        ), f"There should not be any overlaps between the categorical contonuous and boolean features. {intersection} are present in more than one definition"
+        ), f"There should not be any overlaps between the categorical continuous and boolean features. {intersection} are present in more than one definition"
         if self.original_target is None:
             self.original_target = self.target
 
@@ -144,13 +162,16 @@ class FeatureConfig:
     ):
         feature_list = copy.deepcopy(self.continuous_features)
         if categorical:
-            feature_list += self.categorical_features + self.boolean_features
+            feature_list += list(set(self.categorical_features) | set(self.boolean_features))
+
         if not exogenous:
             feature_list = list(set(feature_list) - set(self.exogenous_features))
+
         feature_list = list(set(feature_list))
         delete_index_cols = list(set(self.index_cols) - set(self.feature_list))
+
         (X, y, y_orig) = (
-            df.loc[:, set(feature_list + self.index_cols)]
+            df.loc[:, list(set(feature_list + self.index_cols))]
             .set_index(self.index_cols, drop=False)
             .drop(columns=delete_index_cols),
             df.loc[:, [self.target] + self.index_cols].set_index(
@@ -234,6 +255,7 @@ class MLForecast:
         self._model = clone(model_config.model)
         if self.model_config.normalize:
             self._scaler = StandardScaler()
+
         if self.model_config.encode_categorical:
             self._cat_encoder = self.model_config.categorical_encoder
             self._encoded_categorical_features = copy.deepcopy(
@@ -261,7 +283,7 @@ class MLForecast:
         missing_feats = difference_list(X.columns, self.feature_config.feature_list)
         if len(missing_feats) > 0:
             warnings.warn(
-                f"Some features in defined in FeatureConfig is not present in the dataframe. Ignoring these features: {missing_feats}"
+                f"Some features in defined in FeatureConfig are not present in the dataframe. Ignoring these features: {missing_feats}"
             )
         self._continuous_feats = intersect_list(
             self.feature_config.continuous_features, X.columns
@@ -274,20 +296,24 @@ class MLForecast:
         )
         if self.model_config.fill_missing:
             X = self.missing_config.impute_missing_values(X)
+
         if self.model_config.encode_categorical:
             missing_cat_cols = difference_list(
                 self._categorical_feats,
                 self.model_config.categorical_encoder.cols,
             )
+
             assert (
                 len(missing_cat_cols) == 0
             ), f"These categorical features are not handled by the categorical_encoder : {missing_cat_cols}"
+
             # In later versions of sklearn get_feature_names have been deprecated
             try:
                 feature_names = self.model_config.categorical_encoder.get_feature_names()
             except AttributeError:
                 # in favour of get_feature_names_out()
                 feature_names = self.model_config.categorical_encoder.get_feature_names_out()
+
             X = self._cat_encoder.fit_transform(X, y)
             self._encoded_categorical_features = difference_list(
                 feature_names,
@@ -296,6 +322,7 @@ class MLForecast:
             )
         else:
             self._encoded_categorical_features = []
+
         if self.model_config.normalize:
             X[
                 self._continuous_feats + self._encoded_categorical_features
@@ -304,8 +331,10 @@ class MLForecast:
             )
         self._train_features = X.columns.tolist()
         # print(len(self._train_features))
+
         if not is_transformed and self.target_transformer is not None:
             y = self.target_transformer.fit_transform(y)
+
         self._model.fit(X, y, **fit_kwargs)
         return self
 
@@ -321,16 +350,20 @@ class MLForecast:
         assert len(intersect_list(self._train_features, X.columns)) == len(
             self._train_features
         ), f"All the features during training is not available while predicting: {difference_list(self._train_features, X.columns)}"
+
         if self.model_config.fill_missing:
             X = self.missing_config.impute_missing_values(X)
+
         if self.model_config.encode_categorical:
             X = self._cat_encoder.transform(X)
+
         if self.model_config.normalize:
             X[
                 self._continuous_feats + self._encoded_categorical_features
             ] = self._scaler.transform(
                 X[self._continuous_feats + self._encoded_categorical_features]
             )
+
         y_pred = pd.Series(
             self._model.predict(X).ravel(),
             index=X.index,
@@ -339,6 +372,7 @@ class MLForecast:
         if self.target_transformer is not None:
             y_pred = self.target_transformer.inverse_transform(y_pred)
             y_pred.name = f"{self.model_config.name}"
+
         return y_pred
 
     def feature_importance(self) -> pd.DataFrame:
@@ -392,7 +426,7 @@ def calculate_metrics(
         )
         if y_train is not None
         else None,
-        "Forecast Bias": darts_metrics_adapter(
-            forecast_bias, actual_series=y, pred_series=y_pred
-        ),
+        # "Forecast Bias": darts_metrics_adapter(
+            # forecast_bias, actual_series=y, pred_series=y_pred
+        # ),
     }
