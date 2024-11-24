@@ -89,6 +89,13 @@ class BaseModel(pl.LightningModule, metaclass=ABCMeta):
         return computed_loss
 
     def calculate_metrics(self, y, y_hat, tag):
+
+        y = y.contiguous()
+        y_hat = y_hat.contiguous()
+
+        if y.shape != y_hat.shape:
+            y_hat = y_hat.view(y.shape)
+
         metrics = []
         for metric, metric_str in zip(self.metrics, self.metrics_name):
             avg_metric = metric(y_hat, y)
@@ -415,23 +422,29 @@ class Seq2SeqwAttnConfig:
     def __post_init__(self):
         self.encoder_type = self.encoder_type.upper()
         self.decoder_type = self.decoder_type.upper()
+
         if isinstance(self.encoder_params, RNNConfig):
             self.encoder_params = self.encoder_params.__dict__
+
         if isinstance(self.decoder_params, RNNConfig):
             self.decoder_params = self.decoder_params.__dict__
+
         assert self.encoder_type in [
             "LSTM",
             "GRU",
             "RNN",
         ], f"{self.encoder_type} is not a valid RNN type"
+
         assert self.decoder_type in [
             "LSTM",
             "GRU",
             "RNN",
         ], f"{self.decoder_type} is not a valid RNN type"
+
         effective_encoder_hidden_size = self.encoder_params["hidden_size"] * (
             2 if self.encoder_params["bidirectional"] else 1
         )
+
         assert (
             self.decoder_params["input_size"]
             == self.encoder_params["input_size"] + effective_encoder_hidden_size
@@ -463,7 +476,9 @@ class Seq2SeqwAttnModel(BaseModel):
             2 if self.hparams.decoder_params["bidirectional"] else 1
         )
         self.attention = ATTENTION_TYPES[self.attention_type]
+
         attn_params = dict()
+
         if issubclass(self.attention, ConcatAttention) or issubclass(
             self.attention, DotProductAttention
         ):
@@ -473,10 +488,12 @@ class Seq2SeqwAttnModel(BaseModel):
                 == self.hparams.decoder_params["hidden_size"]
                 * dec_bi_directional_multiplier
             ), "Hidden size*D, where D=2 for bi directional and 1 otherwise, of encoder and decoder must be equal"
+
             attn_params = {
                 "hidden_dim": self.hparams.encoder_params.hidden_size
                 * enc_bi_directional_multiplier
             }
+
             if issubclass(self.attention, DotProductAttention):
                 if "scale" in self.attention_type:
                     attn_params["scaled"] = True
@@ -489,9 +506,11 @@ class Seq2SeqwAttnModel(BaseModel):
                 "decoder_dim": self.hparams.decoder_params.hidden_size
                 * dec_bi_directional_multiplier,
             }
+
         if "scale" in self.attention_type:
             if issubclass(self.attention, DotProductAttention):
                 attn_params["scaled"] = True
+
         self.attention = self.attention(**attn_params)
 
         if self.hparams.encoder_type == "RNN":
@@ -531,8 +550,10 @@ class Seq2SeqwAttnModel(BaseModel):
         )
 
     def _get_top_layer_hidden_state(self, hidden_state):
+
         if self.hparams.encoder_type == "LSTM":
             hidden_state, _ = hidden_state
+
         if self.hparams.encoder_params["bidirectional"]:
             # concatenating the forward and backward hidden states
             return torch.cat((hidden_state[-1, :, :], hidden_state[-2, :, :]), dim=-1)
@@ -544,26 +565,34 @@ class Seq2SeqwAttnModel(BaseModel):
         o, h = self.encoder(
             x
         )  # --> (batch_size, seq_len, hidden_size) , (num_layers, batch_size, hidden_size) (hidden size*2 and num_layers*2 if bidirectional)
+
         # Loop to generate target
         y_hat = torch.zeros_like(y, device=y.device)
         dec_input = x[:, -1:, :]
+
         for i in range(y.size(1)):
+
             top_h = self._get_top_layer_hidden_state(
                 h
             )  # --> (batch_size, hidden_size*2 if bidirectional)
+
             context = self.attention(
                 top_h.unsqueeze(1), o
             )  # --> (batch_size, hidden_size)
+
             dec_input = torch.cat((dec_input, context.unsqueeze(1)), dim=-1)
             out, h = self.decoder(dec_input, h)
             out = self.fc(out)
+
             y_hat[:, i, :] = out.squeeze(1)
+
             # decide if we are going to use teacher forcing or not
             teacher_force = random.random() < self.hparams.teacher_forcing_ratio
             if teacher_force:
                 dec_input = y[:, i, :].unsqueeze(1)
             else:
                 dec_input = out
+
         return y_hat, y
 
     def predict(
@@ -627,9 +656,12 @@ class TransformerModel(BaseModel):
 
     def _build_network(self):
         self.input_projection = nn.Linear(
-            self.hparams.input_size, self.hparams.d_model, bias=False
+            self.hparams.input_size,
+            self.hparams.d_model,
+            bias=False
         )
         self.pos_encoder = PositionalEncoding(self.hparams.d_model)
+
         self.encoder_layer = nn.TransformerEncoderLayer(
             d_model=self.hparams.d_model,
             nhead=self.hparams.n_heads,
@@ -639,8 +671,10 @@ class TransformerModel(BaseModel):
             batch_first=True,
         )
         self.transformer_encoder = nn.TransformerEncoder(
-            self.encoder_layer, num_layers=self.hparams.n_layers
+            self.encoder_layer,
+            num_layers=self.hparams.n_layers
         )
+
         # self.decoder = nn.Linear(self.hparams.d_model, self.hparams.multi_step_horizon)
         self.decoder = nn.Sequential(
             nn.Linear(self.hparams.d_model, 100),
@@ -662,15 +696,21 @@ class TransformerModel(BaseModel):
 
     def forward(self, batch: Tuple[torch.Tensor, torch.Tensor]):
         x, y = batch
+
         mask = self._generate_square_subsequent_mask(x.shape[1]).to(x.device)
+
         # Projecting input dimension to d_model
         x_ = self.input_projection(x)
+
         # Adding positional encoding
         x_ = self.pos_encoder(x_)
+
         # Encoding the input
         x_ = self.transformer_encoder(x_, mask)
+
         # Decoding the input
         y_hat = self.decoder(x_)
+
         # constructing a shifted by one target so that all the outputs from the decoder can be trained
         # also unfolding so that at each position we can train all H horizon forecasts
         y = torch.cat([x[:, 1:, :], y], dim=1).squeeze(-1).unfold(1, y.size(1), 1)
@@ -683,6 +723,7 @@ class TransformerModel(BaseModel):
             y_hat, _ = self.forward(batch)
             # We only need the last position prediction in prediction task
             y_hat = y_hat[:, -1, :].unsqueeze(1)
+
         return y_hat
 
 
